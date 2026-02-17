@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue'
+import { usePomodoro } from '~/composables/usePomodoro'
 
 interface Todo {
   id: number
@@ -7,6 +8,8 @@ interface Todo {
   completed: boolean
 }
 
+
+const { currentFocusTask, setFocusTask } = usePomodoro()
 const todos = ref<Todo[]>([])
 const newTodoText = ref('')
 
@@ -49,13 +52,13 @@ const removeTodo = (id: number) => {
     <h3 class="text-xl font-bold text-gray-800">Tasks</h3>
     
     <!-- Add Task -->
-    <div class="flex gap-2">
+    <div class="flex gap-2 px-0.5">
       <input 
         v-model="newTodoText"
         @keyup.enter="addTodo"
         type="text" 
         placeholder="Add a new task..." 
-        class="w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50"
+        class="flex-1 px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50"
       >
       <button 
         @click="addTodo"
@@ -93,15 +96,32 @@ const removeTodo = (id: number) => {
           </span>
         </div>
 
-        <button 
-          @click="removeTodo(todo.id)"
-          class="text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="3 6 5 6 21 6"></polyline>
-            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-          </svg>
-        </button>
+        <div class="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+          <!-- Focus Button -->
+          <button 
+            v-if="!todo.completed"
+            @click="setFocusTask(todo)"
+            class="p-1.5 rounded-full transition-colors"
+            :class="currentFocusTask?.id === todo.id ? 'text-primary bg-orange-50' : 'text-gray-400 hover:text-primary hover:bg-gray-50'"
+            title="Set as current focus"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"></circle>
+              <circle cx="12" cy="12" r="3"></circle>
+            </svg>
+          </button>
+
+          <!-- Delete Button -->
+          <button 
+            @click="removeTodo(todo.id)"
+            class="p-1.5 text-gray-400 hover:text-red-500 rounded-full hover:bg-red-50 transition-colors"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="3 6 5 6 21 6"></polyline>
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+            </svg>
+          </button>
+        </div>
       </li>
     </ul>
     
