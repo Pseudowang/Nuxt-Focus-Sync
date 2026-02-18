@@ -12,6 +12,8 @@ interface Stats {
 interface FocusTask {
     id: number;
     text: string;
+    tag?: string;
+    tagColor?: string;
 }
 
 // Global State
