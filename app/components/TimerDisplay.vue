@@ -42,7 +42,15 @@ const modeBgColor = computed(() => {
       class="flex items-center gap-3 px-6 py-2 bg-white/5 backdrop-blur-md rounded-full text-text-primary animate-fade-in border border-glass-border select-none mb-[-2rem] z-10 transition-all duration-500"
     >
       <span class="w-2 h-2 rounded-full animate-pulse transition-colors duration-500" :class="modeBgColor"></span>
-      <span class="font-medium text-lg max-w-[300px] truncate">{{ currentFocusTask.text }}</span>
+      <span class="text-text-muted text-sm font-medium uppercase tracking-wider">Focusing on:</span>
+      <span class="font-bold text-lg max-w-[300px] truncate">{{ currentFocusTask.text }}</span>
+      <span 
+        v-if="currentFocusTask.tag"
+        class="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider flex-shrink-0"
+        :class="currentFocusTask.tagColor"
+      >
+        {{ currentFocusTask.tag }}
+      </span>
       <button 
         @click="setFocusTask(null)" 
         class="ml-2 p-1 text-text-muted hover:text-text-primary hover:bg-white/10 rounded-full transition-colors"
