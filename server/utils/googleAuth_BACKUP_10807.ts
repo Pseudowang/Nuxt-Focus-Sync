@@ -16,6 +16,8 @@ interface GoogleTokenResponse {
   expires_in: number
   refresh_token?: string
   token_type: string
+<<<<<<< Updated upstream
+=======
   id_token?: string
 }
 
@@ -24,13 +26,13 @@ export interface GoogleUser {
   email: string
   name: string
   picture: string
+>>>>>>> Stashed changes
 }
 
 export interface GoogleSession {
   accessToken: string
   refreshToken: string
   expiresAt: number
-  user: GoogleUser
 }
 
 const toBase64Url = (value: string) => Buffer.from(value, 'utf8').toString('base64url')
@@ -143,7 +145,7 @@ export const createGoogleAuthUrl = (event: H3Event) => {
   return url.toString()
 }
 
-const toGoogleSession = (tokens: GoogleTokenResponse, user: GoogleUser, existingRefreshToken?: string): GoogleSession => {
+const toGoogleSession = (tokens: GoogleTokenResponse, existingRefreshToken?: string): GoogleSession => {
   if (!tokens.access_token) {
     throw createError({ statusCode: 401, statusMessage: 'Missing access token from Google' })
   }
@@ -157,40 +159,32 @@ const toGoogleSession = (tokens: GoogleTokenResponse, user: GoogleUser, existing
     accessToken: tokens.access_token,
     refreshToken,
     expiresAt: Date.now() + tokens.expires_in * 1000 - ACCESS_TOKEN_TTL_BUFFER_MS,
-    user,
   }
 }
 
 export const exchangeCodeForSession = async (event: H3Event, code: string, existingRefreshToken?: string) => {
   const { clientId, clientSecret, redirectUri } = getGoogleRuntimeConfig(event)
 
-  let response
-  try {
-    response = await fetch(GOOGLE_TOKEN_ENDPOINT, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        code,
-        client_id: clientId,
-        client_secret: clientSecret,
-        redirect_uri: redirectUri,
-        grant_type: 'authorization_code',
-      }).toString(),
-    })
-  } catch (error) {
-    console.error('Failed to fetch Google token endpoint:', error)
-    throw createError({
-      statusCode: 500,
-      statusMessage: `Network error when contacting Google OAuth: ${error instanceof Error ? error.message : 'Unknown error'}`,
-    })
-  }
+  const response = await fetch(GOOGLE_TOKEN_ENDPOINT, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      code,
+      client_id: clientId,
+      client_secret: clientSecret,
+      redirect_uri: redirectUri,
+      grant_type: 'authorization_code',
+    }).toString(),
+  })
 
   const raw = await response.text()
   if (!response.ok) {
-    console.error('Google token exchange failed:', raw)
     throw createError({ statusCode: response.status, statusMessage: `Failed to exchange code: ${raw}` })
   }
 
+<<<<<<< Updated upstream
+  return toGoogleSession(JSON.parse(raw) as GoogleTokenResponse, existingRefreshToken)
+=======
   const tokens = JSON.parse(raw) as GoogleTokenResponse
 
   // Fetch User Info
@@ -228,38 +222,29 @@ export const exchangeCodeForSession = async (event: H3Event, code: string, exist
   }
 
   return toGoogleSession(tokens, user, existingRefreshToken)
+>>>>>>> Stashed changes
 }
 
 export const refreshGoogleSession = async (event: H3Event, session: GoogleSession) => {
   const { clientId, clientSecret } = getGoogleRuntimeConfig(event)
 
-  let response
-  try {
-    response = await fetch(GOOGLE_TOKEN_ENDPOINT, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        client_id: clientId,
-        client_secret: clientSecret,
-        refresh_token: session.refreshToken,
-        grant_type: 'refresh_token',
-      }).toString(),
-    })
-  } catch (error) {
-    console.error('Failed to refresh Google token:', error)
-    throw createError({
-      statusCode: 500,
-      statusMessage: `Network error when refreshing token: ${error instanceof Error ? error.message : 'Unknown error'}`,
-    })
-  }
+  const response = await fetch(GOOGLE_TOKEN_ENDPOINT, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      client_id: clientId,
+      client_secret: clientSecret,
+      refresh_token: session.refreshToken,
+      grant_type: 'refresh_token',
+    }).toString(),
+  })
 
   const raw = await response.text()
   if (!response.ok) {
-    console.error('Google token refresh failed:', raw)
     throw createError({ statusCode: response.status, statusMessage: `Failed to refresh token: ${raw}` })
   }
 
-  return toGoogleSession(JSON.parse(raw) as GoogleTokenResponse, session.user, session.refreshToken)
+  return toGoogleSession(JSON.parse(raw) as GoogleTokenResponse, session.refreshToken)
 }
 
 export const setGoogleSessionCookie = (event: H3Event, session: GoogleSession) => {

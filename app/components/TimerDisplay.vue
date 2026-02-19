@@ -43,13 +43,13 @@ const modeBgColor = computed(() => {
     >
       <span class="w-2 h-2 rounded-full animate-pulse transition-colors duration-500" :class="modeBgColor"></span>
       <span class="text-text-muted text-sm font-medium uppercase tracking-wider">Focusing on:</span>
-      <span class="font-bold text-lg max-w-[300px] truncate">{{ currentFocusTask.text }}</span>
+      <span class="font-bold text-lg max-w-[300px] truncate">{{ currentFocusTask.title }}</span>
       <span 
-        v-if="currentFocusTask.tag"
+        v-if="currentFocusTask.tagName"
         class="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider flex-shrink-0"
-        :class="currentFocusTask.tagColor"
+        :class="currentFocusTask.tagClass"
       >
-        {{ currentFocusTask.tag }}
+        {{ currentFocusTask.tagName }}
       </span>
       <button 
         @click="setFocusTask(null)" 

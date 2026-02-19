@@ -1,242 +1,208 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch, computed } from "vue";
-import { usePomodoro } from "~/composables/usePomodoro";
-
-interface Todo {
-  id: number;
-  text: string;
-  completed: boolean;
-  tag?: string;
-  tagColor?: string;
-}
+import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { useFocusFlowDAO } from '~/composables/useFocusFlowDAO'
+import { hexToTagClass, normalizeTagToId, tagNameFromId } from '~/composables/useFocusFlowDB'
+import { usePomodoro } from '~/composables/usePomodoro'
 
 const TAG_OPTIONS = [
-  { name: "Coding", color: "text-blue-400", bg: "bg-blue-400/10" },
-  { name: "Reading", color: "text-emerald-400", bg: "bg-emerald-400/10" },
-  { name: "Design", color: "text-purple-400", bg: "bg-purple-400/10" },
-  { name: "Meeting", color: "text-amber-400", bg: "bg-amber-400/10" },
-  { name: "General", color: "text-slate-400", bg: "bg-slate-400/10" },
-];
+  { name: 'Coding', color: 'text-blue-400', bg: 'bg-blue-400/10' },
+  { name: 'Reading', color: 'text-emerald-400', bg: 'bg-emerald-400/10' },
+  { name: 'Design', color: 'text-purple-400', bg: 'bg-purple-400/10' },
+  { name: 'Meeting', color: 'text-amber-400', bg: 'bg-amber-400/10' },
+  { name: 'General', color: 'text-slate-400', bg: 'bg-slate-400/10' },
+]
 
-const { currentFocusTask, setFocusTask, currentMode } = usePomodoro();
-const todos = ref<Todo[]>([]);
-const newTodoText = ref("");
-const showTagMenu = ref(false);
-const filteredTags = ref(TAG_OPTIONS);
-const editingId = ref<number | null>(null);
-const editingText = ref("");
-const containerRef = ref<HTMLElement | null>(null);
+const {
+  activeTasks,
+  completedTasks,
+  hasHydrated,
+  addTask,
+  updateTask,
+  toggleTaskStatus,
+  removeTask,
+} = useFocusFlowDAO()
+const { currentFocusTask, setFocusTask, currentMode, hydrateFocusTaskFromTask } = usePomodoro()
 
-const activeTodos = computed(() => todos.value.filter((t) => !t.completed));
-const completedTodos = computed(() => todos.value.filter((t) => t.completed));
+const newTodoText = ref('')
+const showTagMenu = ref(false)
+const filteredTags = ref(TAG_OPTIONS)
+const editingId = ref<string | null>(null)
+const editingText = ref('')
+const containerRef = ref<HTMLElement | null>(null)
 
-const handleClickOutside = (e: MouseEvent) => {
-  if (containerRef.value && !containerRef.value.contains(e.target as Node)) {
-    showTagMenu.value = false;
+const parseTaskInput = (value: string) => {
+  let title = value.trim()
+  let tagName = 'General'
+
+  const tagMatch = title.match(/#(\w+)/)
+  if (tagMatch) {
+    tagName = tagMatch[1]
+    title = title.replace(/#\w+/, '').trim()
   }
-};
+
+  const tagId = normalizeTagToId(tagName)
+  const knownTag = TAG_OPTIONS.find((tag) => tag.name.toLowerCase() === tagName.toLowerCase())
+  const tagClass = knownTag ? `${knownTag.color} ${knownTag.bg}` : hexToTagClass('#94a3b8')
+
+  return {
+    title: title || 'Untitled Task',
+    tagName,
+    tagId,
+    tagClass,
+  }
+}
+
+const toUiTask = (
+  task: {
+    id: string
+    title: string
+    tagId: string
+  },
+) => {
+  const displayTag = tagNameFromId(task.tagId)
+  const normalizedTag = TAG_OPTIONS.find(
+    (tag) => normalizeTagToId(tag.name) === task.tagId,
+  )
+
+  return {
+    id: task.id,
+    text: task.title,
+    tag: displayTag,
+    tagColor: normalizedTag
+      ? `${normalizedTag.color} ${normalizedTag.bg}`
+      : hexToTagClass('#94a3b8'),
+    tagId: task.tagId,
+  }
+}
+
+const uiActiveTasks = computed(() => activeTasks.value.map(toUiTask))
+const uiCompletedTasks = computed(() => completedTasks.value.map(toUiTask))
+
+const handleClickOutside = (event: MouseEvent) => {
+  if (containerRef.value && !containerRef.value.contains(event.target as Node)) {
+    showTagMenu.value = false
+  }
+}
 
 onMounted(() => {
-  window.addEventListener("click", handleClickOutside);
-  if (typeof window !== "undefined") {
-    const saved = localStorage.getItem("pomodoro-todos");
-    if (saved) {
-      try {
-        todos.value = JSON.parse(saved);
-      } catch (e) {
-        console.error(e);
-      }
-    }
-  }
-});
+  window.addEventListener('click', handleClickOutside)
+})
 
 onUnmounted(() => {
-  window.removeEventListener("click", handleClickOutside);
-});
+  window.removeEventListener('click', handleClickOutside)
+})
 
-watch(
-  todos,
-  (newTodos) => {
-    if (typeof window !== "undefined") {
-      localStorage.setItem("pomodoro-todos", JSON.stringify(newTodos));
-    }
-  },
-  { deep: true },
-);
-
-const handleInput = (e: Event) => {
-  const target = e.target as HTMLInputElement;
-  const lastChar = target.value.slice(-1);
-  if (lastChar === "#") {
-    showTagMenu.value = true;
-    filteredTags.value = TAG_OPTIONS;
+const handleInput = (event: Event) => {
+  const target = event.target as HTMLInputElement
+  const lastChar = target.value.slice(-1)
+  if (lastChar === '#') {
+    showTagMenu.value = true
+    filteredTags.value = TAG_OPTIONS
   } else if (showTagMenu.value) {
-    const parts = target.value.split("#");
-    const tagQuery = parts[parts.length - 1].toLowerCase();
-    if (tagQuery.includes(" ")) {
-      showTagMenu.value = false;
+    const parts = target.value.split('#')
+    const tagQuery = parts[parts.length - 1].toLowerCase()
+    if (tagQuery.includes(' ')) {
+      showTagMenu.value = false
     } else {
       filteredTags.value = TAG_OPTIONS.filter((tag) =>
         tag.name.toLowerCase().includes(tagQuery),
-      );
+      )
     }
   }
-};
+}
 
 const selectTag = (tag: (typeof TAG_OPTIONS)[0]) => {
-  const parts = newTodoText.value.split("#");
-  parts.pop();
-  newTodoText.value = parts.join("#") + "#" + tag.name + " ";
-  showTagMenu.value = false;
-};
+  const parts = newTodoText.value.split('#')
+  parts.pop()
+  newTodoText.value = `${parts.join('#')}#${tag.name} `
+  showTagMenu.value = false
+}
 
-const addTodo = () => {
-  if (!newTodoText.value.trim()) return;
+const addTodo = async () => {
+  if (!newTodoText.value.trim()) return
 
-  let text = newTodoText.value.trim();
-  let tag = "General";
-  let tagColor = "text-slate-400 bg-slate-400/10";
+  const parsed = parseTaskInput(newTodoText.value)
+  await addTask(parsed.title, parsed.tagName)
+  newTodoText.value = ''
+  showTagMenu.value = false
+}
 
-  const tagMatch = text.match(/#(\w+)/);
-  if (tagMatch) {
-    tag = tagMatch[1];
-    text = text.replace(/#\w+/, "").trim();
-    const existingTag = TAG_OPTIONS.find(
-      (t) => t.name.toLowerCase() === tag.toLowerCase(),
-    );
-    if (existingTag) {
-      tagColor = `${existingTag.color} ${existingTag.bg}`;
-    } else {
-      const colors = [
-        { color: "text-blue-400", bg: "bg-blue-400/10" },
-        { color: "text-emerald-400", bg: "bg-emerald-400/10" },
-        { color: "text-purple-400", bg: "bg-purple-400/10" },
-        { color: "text-amber-400", bg: "bg-amber-400/10" },
-        { color: "text-rose-400", bg: "bg-rose-400/10" },
-        { color: "text-indigo-400", bg: "bg-indigo-400/10" },
-      ];
-      const randomColor = colors[Math.floor(Math.random() * colors.length)];
-      tagColor = `${randomColor.color} ${randomColor.bg}`;
-    }
-  }
-
-  todos.value.push({
-    id: Date.now(),
-    text: text || "Untitled Task",
-    completed: false,
-    tag,
-    tagColor,
-  });
-  newTodoText.value = "";
-  showTagMenu.value = false;
-};
-
-const removeTodo = (id: number) => {
-  todos.value = todos.value.filter((t) => t.id !== id);
+const removeTodo = async (id: string) => {
+  await removeTask(id)
   if (currentFocusTask.value?.id === id) {
-    setFocusTask(null);
+    setFocusTask(null)
   }
-};
+}
 
-const toggleComplete = (todo: Todo) => {
-  todo.completed = !todo.completed;
-  if (todo.completed && currentFocusTask.value?.id === todo.id) {
-    setFocusTask(null);
+const toggleComplete = async (todo: { id: string }) => {
+  await toggleTaskStatus(todo.id)
+  if (currentFocusTask.value?.id === todo.id) {
+    setFocusTask(null)
   }
-};
+}
 
-const startEditing = (todo: Todo) => {
-  editingId.value = todo.id;
-  editingText.value = todo.tag ? `${todo.text} #${todo.tag}` : todo.text;
-};
+const startEditing = (todo: { id: string; text: string; tag: string }) => {
+  editingId.value = todo.id
+  editingText.value = todo.tag ? `${todo.text} #${todo.tag}` : todo.text
+}
 
-const saveEdit = () => {
-  if (editingId.value === null) return;
-  const todo = todos.value.find((t) => t.id === editingId.value);
-  if (todo) {
-    let text = editingText.value.trim();
-    let tag = todo.tag || "General";
-    let tagColor = todo.tagColor || "text-slate-400 bg-slate-400/10";
+const saveEdit = async () => {
+  if (editingId.value === null) return
 
-    const tagMatch = text.match(/#(\w+)/);
-    if (tagMatch) {
-      tag = tagMatch[1];
-      text = text.replace(/#\w+/, "").trim();
-      const existingTag = TAG_OPTIONS.find(
-        (t) => t.name.toLowerCase() === tag.toLowerCase(),
-      );
-      if (existingTag) {
-        tagColor = `${existingTag.color} ${existingTag.bg}`;
-      } else if (tag !== todo.tag) {
-        const colors = [
-          { color: "text-blue-400", bg: "bg-blue-400/10" },
-          { color: "text-emerald-400", bg: "bg-emerald-400/10" },
-          { color: "text-purple-400", bg: "bg-purple-400/10" },
-          { color: "text-amber-400", bg: "bg-amber-400/10" },
-          { color: "text-rose-400", bg: "bg-rose-400/10" },
-          { color: "text-indigo-400", bg: "bg-indigo-400/10" },
-        ];
-        const randomColor = colors[Math.floor(Math.random() * colors.length)];
-        tagColor = `${randomColor.color} ${randomColor.bg}`;
-      }
-    }
+  const parsed = parseTaskInput(editingText.value)
+  await updateTask(editingId.value, parsed.title, parsed.tagName)
 
-    todo.text = text || "Untitled Task";
-    todo.tag = tag;
-    todo.tagColor = tagColor;
-
-    if (currentFocusTask.value?.id === todo.id) {
-      setFocusTask({ ...todo });
+  if (currentFocusTask.value?.id === editingId.value) {
+    const task = activeTasks.value.find((item) => item.id === editingId.value)
+    if (task) {
+      setFocusTask(hydrateFocusTaskFromTask(task))
     }
   }
-  editingId.value = null;
-};
 
-// Custom directive for focusing input
+  editingId.value = null
+}
+
 const vFocus = {
-  mounted: (el: HTMLInputElement) => el.focus(),
-};
+  mounted: (element: HTMLInputElement) => element.focus(),
+}
 
 const modeBgColor = computed(() => {
   switch (currentMode.value) {
-    case "focus":
-      return "bg-focus";
-    case "short-break":
-      return "bg-short-break";
-    case "long-break":
-      return "bg-long-break";
-    case "flow":
-      return "bg-flow";
+    case 'focus':
+      return 'bg-focus'
+    case 'short-break':
+      return 'bg-short-break'
+    case 'long-break':
+      return 'bg-long-break'
+    case 'flow':
+      return 'bg-flow'
     default:
-      return "bg-focus";
+      return 'bg-focus'
   }
-});
+})
 
 const modeTextColor = computed(() => {
   switch (currentMode.value) {
-    case "focus":
-      return "text-focus";
-    case "short-break":
-      return "text-short-break";
-    case "long-break":
-      return "text-long-break";
-    case "flow":
-      return "text-flow";
+    case 'focus':
+      return 'text-focus'
+    case 'short-break':
+      return 'text-short-break'
+    case 'long-break':
+      return 'text-long-break'
+    case 'flow':
+      return 'text-flow'
     default:
-      return "text-focus";
+      return 'text-focus'
   }
-});
+})
 </script>
 
 <template>
   <div class="flex-1 flex flex-col min-h-0 space-y-6">
-    <h3
-      class="text-xs font-bold text-text-muted uppercase tracking-[0.2em] opacity-60"
-    >
+    <h3 class="text-xs font-bold text-text-muted uppercase tracking-[0.2em] opacity-60">
       Tasks
     </h3>
 
-    <!-- Add Task -->
     <div class="relative" ref="containerRef">
       <div class="flex gap-3">
         <input
@@ -251,6 +217,7 @@ const modeTextColor = computed(() => {
           @click="addTodo"
           class="p-3 rounded-xl text-white shadow-lg transition-all active:scale-95"
           :class="modeBgColor"
+          title="Add task"
         >
           <svg
             xmlns="http://www.w3.org/2000/svg"
@@ -269,7 +236,6 @@ const modeTextColor = computed(() => {
         </button>
       </div>
 
-      <!-- Tag Floating Menu -->
       <div
         v-if="showTagMenu && filteredTags.length > 0"
         class="absolute left-0 right-0 top-full mt-2 bg-[#25282C] border border-glass-border rounded-xl shadow-2xl z-50 overflow-hidden backdrop-blur-xl"
@@ -280,25 +246,16 @@ const modeTextColor = computed(() => {
           @click="selectTag(tag)"
           class="flex items-center gap-3 px-4 py-3 hover:bg-white/5 cursor-pointer transition-colors border-b border-white/5 last:border-0"
         >
-          <span
-            class="w-2 h-2 rounded-full"
-            :class="tag.color.replace('text-', 'bg-')"
-          ></span>
+          <span class="w-2 h-2 rounded-full" :class="tag.color.replace('text-', 'bg-')"></span>
           <span class="text-text-primary font-medium">{{ tag.name }}</span>
         </div>
       </div>
     </div>
 
-    <!-- List -->
     <div class="flex-1 overflow-y-auto pr-4 custom-scrollbar min-h-0 space-y-8">
-      <!-- Active Tasks -->
-      <TransitionGroup
-        name="list"
-        tag="ul"
-        class="space-y-3"
-      >
+      <TransitionGroup name="list" tag="ul" class="space-y-3">
         <li
-          v-for="todo in activeTodos"
+          v-for="todo in uiActiveTasks"
           :key="todo.id"
           class="flex items-center justify-between py-3 px-3.5 bg-white/5 rounded-2xl border border-glass-border group hover:bg-white/[0.08] transition-all duration-300"
           :class="{ 'ring-1 ring-white/20': currentFocusTask?.id === todo.id }"
@@ -306,12 +263,12 @@ const modeTextColor = computed(() => {
           <div class="flex items-center gap-4 flex-1 min-w-0">
             <button
               @click="toggleComplete(todo)"
-              class="w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all flex-shrink-0"
-              :class="'border-white/10 hover:border-white/30'"
+              class="w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all flex-shrink-0 border-white/10 hover:border-white/30"
+              title="Mark complete"
             >
               <div class="w-2 h-2 rounded-full opacity-0 group-hover:opacity-40 bg-emerald-500 transition-opacity"></div>
             </button>
-            
+
             <div class="flex flex-col flex-1 min-w-0">
               <div v-if="editingId === todo.id" class="flex gap-2">
                 <input
@@ -323,16 +280,13 @@ const modeTextColor = computed(() => {
                 />
               </div>
               <div v-else @dblclick="startEditing(todo)" class="flex items-center gap-2 truncate">
-                <!-- Breathing Light -->
-                <span 
+                <span
                   v-if="currentFocusTask?.id === todo.id"
                   class="w-2 h-2 rounded-full animate-pulse flex-shrink-0"
                   :class="modeBgColor"
                 ></span>
-                <span class="truncate font-medium text-text-primary">
-                  {{ todo.text }}
-                </span>
-                <span 
+                <span class="truncate font-medium text-text-primary">{{ todo.text }}</span>
+                <span
                   v-if="todo.tag"
                   class="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider flex-shrink-0"
                   :class="todo.tagColor"
@@ -347,7 +301,7 @@ const modeTextColor = computed(() => {
             class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0 ml-2"
           >
             <button
-              @click="setFocusTask(todo)"
+              @click="setFocusTask(hydrateFocusTaskFromTask({ id: todo.id, title: todo.text, tagId: todo.tagId }))"
               class="p-2 rounded-lg transition-all"
               :class="
                 currentFocusTask?.id === todo.id
@@ -364,6 +318,7 @@ const modeTextColor = computed(() => {
             <button
               @click="removeTodo(todo.id)"
               class="p-2 text-text-muted hover:text-red-400 rounded-lg hover:bg-red-400/10 transition-all"
+              title="Delete task"
             >
               <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <polyline points="3 6 5 6 21 6"></polyline>
@@ -374,18 +329,13 @@ const modeTextColor = computed(() => {
         </li>
       </TransitionGroup>
 
-      <!-- Completed Tasks -->
-      <div v-if="completedTodos.length > 0" class="space-y-4 pt-4 border-t border-white/5">
+      <div v-if="uiCompletedTasks.length > 0" class="space-y-4 pt-4 border-t border-white/5">
         <h4 class="text-[10px] font-bold text-text-muted uppercase tracking-[0.2em] opacity-40">
           Completed
         </h4>
-        <TransitionGroup
-          name="list"
-          tag="ul"
-          class="space-y-2"
-        >
+        <TransitionGroup name="list" tag="ul" class="space-y-2">
           <li
-            v-for="todo in completedTodos"
+            v-for="todo in uiCompletedTasks"
             :key="todo.id"
             class="flex items-center justify-between py-2 px-3 bg-white/5 rounded-xl border border-glass-border opacity-50 group transition-all duration-300"
           >
@@ -393,18 +343,18 @@ const modeTextColor = computed(() => {
               <button
                 @click="toggleComplete(todo)"
                 class="w-5 h-5 rounded-md bg-emerald-500 flex items-center justify-center transition-all flex-shrink-0"
+                title="Restore task"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" class="text-white">
                   <polyline points="20 6 9 17 4 12"></polyline>
                 </svg>
               </button>
-              <span class="line-through text-text-muted truncate text-sm">
-                {{ todo.text }}
-              </span>
+              <span class="line-through text-text-muted truncate text-sm">{{ todo.text }}</span>
             </div>
             <button
               @click="removeTodo(todo.id)"
               class="p-1.5 text-text-muted hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all"
+              title="Delete task"
             >
               <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <polyline points="3 6 5 6 21 6"></polyline>
@@ -415,9 +365,8 @@ const modeTextColor = computed(() => {
         </TransitionGroup>
       </div>
 
-      <!-- Empty State -->
       <div
-        v-if="todos.length === 0"
+        v-if="hasHydrated && uiActiveTasks.length === 0 && uiCompletedTasks.length === 0"
         class="text-center text-text-muted/40 text-sm py-12 font-medium flex flex-col items-center gap-4"
       >
         <div class="w-12 h-12 rounded-2xl bg-white/5 flex items-center justify-center opacity-50">
