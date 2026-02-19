@@ -10,6 +10,7 @@ export default defineEventHandler(async (event) => {
 
     return {
       connected: true,
+      user: session.user,
       expiresAt: session.expiresAt,
     }
   } catch (error) {

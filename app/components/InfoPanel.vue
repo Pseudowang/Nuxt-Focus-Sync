@@ -6,6 +6,7 @@ import { usePomodoro, DURATIONS } from "~/composables/usePomodoro";
 
 import TodoList from "./TodoList.vue";
 import StatsDisplay from "./StatsDisplay.vue";
+import { useUI } from "~/composables/useUI";
 
 const {
   isSignedIn,
@@ -19,6 +20,7 @@ const {
 const { hasGuestData, setShouldMigrateGuestOnLogin } = useFocusFlowDAO();
 
 const { currentMode, timeLeft, isRunning } = usePomodoro();
+const { openProfile } = useUI();
 
 const showDropdown = ref(false);
 const dropdownRef = ref<HTMLElement | null>(null);
@@ -83,6 +85,11 @@ const handleGoogleSignIn = async () => {
 
 const toggleDropdown = () => {
   showDropdown.value = !showDropdown.value;
+};
+
+const handleOpenProfile = () => {
+  openProfile();
+  showDropdown.value = false;
 };
 
 const closeDropdown = (e: MouseEvent) => {
@@ -225,7 +232,7 @@ onUnmounted(() => {
 
                   <button
                     class="w-full text-left px-4 py-2.5 text-[12px] font-medium text-text-primary hover:bg-white/10 transition-colors flex items-center gap-3"
-                    @click="showDropdown = false"
+                    @click="handleOpenProfile"
                   >
                     <svg
                       class="w-4 h-4 opacity-70"

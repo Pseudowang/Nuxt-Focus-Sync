@@ -77,6 +77,8 @@ export const useGoogleCalendar = () => {
     startAt,
     endAt,
   }: InsertPomodoroEventPayload) => {
+    console.log('[useGoogleCalendar] Inserting event:', { summary, startAt, endAt })
+
     try {
       const response = await $fetch<{ id?: string }>('/api/calendar/events', {
         method: 'POST',
@@ -88,12 +90,15 @@ export const useGoogleCalendar = () => {
         },
       })
 
+      console.log('[useGoogleCalendar] Event created successfully:', response)
       isConnected.value = true
       return response.id || null
     } catch (error) {
       const message =
         error instanceof Error ? error.message : 'Failed to create Google Calendar event'
       errorMessage.value = message
+
+      console.error('[useGoogleCalendar] Failed to create event:', error)
 
       if (message.includes('401') || message.toLowerCase().includes('not connected')) {
         isConnected.value = false

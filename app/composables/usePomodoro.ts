@@ -43,7 +43,7 @@ const sessionFocusTaskTitle = ref<string | null>(null)
 let hasInitializedStatsWatcher = false
 
 export const usePomodoro = () => {
-  const { isSignedIn, insertPomodoroEvent } = useGoogleCalendar()
+  const { insertPomodoroEvent } = useGoogleCalendar()
   const {
     userMeta,
     getTodayFocusTime,
@@ -85,32 +85,48 @@ export const usePomodoro = () => {
     const startTime = endTime - durationSeconds * 1000
     const fallback = getTagPresentation('tag-general')
 
-    const taskName =
-      sessionFocusTaskTitle.value ||
-      currentFocusTask.value?.title ||
-      (mode === 'flow' ? 'Flow Session' : 'Pomodoro Focus Session')
+    const isFocusLikeMode = mode === 'focus' || mode === 'flow'
 
-    const tagInfo = currentFocusTask.value
+    const taskName =
+      mode === 'short-break'
+        ? 'Short Break'
+        : mode === 'long-break'
+          ? 'Long Break'
+          : sessionFocusTaskTitle.value ||
+            currentFocusTask.value?.title ||
+            (mode === 'flow' ? 'Flow Session' : 'Pomodoro Focus Session')
+
+    const tagInfo = isFocusLikeMode && currentFocusTask.value
       ? getTagPresentation(currentFocusTask.value.tagId)
       : {
           tagName: fallback.tagName,
           tagColor: fallback.tagColor,
         }
 
-    const record = await addFocusRecord({
-      taskId: currentFocusTask.value?.id || null,
-      taskName,
-      tagName: tagInfo.tagName,
-      tagColor: tagInfo.tagColor,
-      startTime,
-      endTime,
-      duration: durationSeconds,
+    const payload = {
+      taskId: isFocusLikeMode ? currentFocusTask.value?.id || null : null,
+      taskName: String(taskName),
+      tagName: String(tagInfo.tagName),
+      tagColor: String(tagInfo.tagColor),
+      startTime: Number(startTime),
+      endTime: Number(endTime),
+      duration: Number(durationSeconds),
       mode: resolveMode(mode),
-    })
+    }
+
+    console.log('[usePomodoro] Creating focus record with payload:', payload)
+    const record = await addFocusRecord(payload)
 
     await refreshStats()
 
-    if (!record || !isSignedIn.value) return
+    // Even if IndexedDB save fails, still try to sync to Google Calendar
+    console.log('[usePomodoro] Attempting to sync to Google Calendar:', {
+      recordId: record?.id || 'no-record',
+      taskName,
+      mode,
+      duration: durationSeconds,
+      hadIndexedDBRecord: !!record,
+    })
 
     try {
       const calendarEventId = await insertPomodoroEvent({
@@ -121,10 +137,19 @@ export const usePomodoro = () => {
       })
 
       if (calendarEventId) {
-        await markFocusRecordSynced(record.id, calendarEventId)
+        console.log('[usePomodoro] Successfully synced to Google Calendar:', calendarEventId)
+        
+        // Only mark as synced in IndexedDB if we have a record
+        if (record) {
+          await markFocusRecordSynced(record.id, calendarEventId)
+        } else {
+          console.warn('[usePomodoro] Calendar sync succeeded but no IndexedDB record to update')
+        }
+      } else {
+        console.warn('[usePomodoro] Calendar event created but no ID returned')
       }
     } catch (error) {
-      console.error('Failed to sync focus session to Google Calendar', error)
+      console.error('[usePomodoro] Failed to sync focus session to Google Calendar', error)
     }
   }
 
@@ -132,11 +157,15 @@ export const usePomodoro = () => {
     if (currentMode.value !== 'flow') return
 
     const duration = timeLeft.value
-    if (duration > 0) {
-      await createAndSyncFocusRecord(duration, 'flow')
-    }
-
     resetTimer()
+
+    if (duration <= 0) return
+
+    try {
+      await createAndSyncFocusRecord(duration, 'flow')
+    } catch (error) {
+      console.error('Failed to complete and save flow session', error)
+    }
   }
 
   const switchMode = (mode: TimerMode) => {
@@ -168,8 +197,14 @@ export const usePomodoro = () => {
         timeLeft.value--
       } else {
         pauseTimer()
-        if (currentMode.value === 'focus') {
-          void createAndSyncFocusRecord(DURATIONS.focus, 'focus')
+        const completedMode = currentMode.value
+        const duration = DURATIONS[completedMode]
+
+        if (duration > 0 && completedMode !== 'flow') {
+          void createAndSyncFocusRecord(duration, completedMode)
+        }
+
+        if (completedMode === 'focus') {
           sessionFocusTaskTitle.value = null
         }
       }
