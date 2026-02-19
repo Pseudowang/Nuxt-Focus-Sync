@@ -132,11 +132,15 @@ export const usePomodoro = () => {
     if (currentMode.value !== 'flow') return
 
     const duration = timeLeft.value
-    if (duration > 0) {
-      await createAndSyncFocusRecord(duration, 'flow')
-    }
-
     resetTimer()
+
+    if (duration <= 0) return
+
+    try {
+      await createAndSyncFocusRecord(duration, 'flow')
+    } catch (error) {
+      console.error('Failed to complete and save flow session', error)
+    }
   }
 
   const switchMode = (mode: TimerMode) => {

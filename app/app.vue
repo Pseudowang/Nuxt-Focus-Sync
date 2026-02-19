@@ -2,9 +2,12 @@
 import ModeSwitcher from '~/components/ModeSwitcher.vue'
 import TimerDisplay from '~/components/TimerDisplay.vue'
 import InfoPanel from '~/components/InfoPanel.vue'
+import ProfilePanel from '~/components/ProfilePanel.vue'
 import { usePomodoro } from '~/composables/usePomodoro'
+import { useUI } from '~/composables/useUI'
 
 const { currentMode } = usePomodoro()
+const { isProfileOpen, closeProfile } = useUI()
 
 useHead({
   title: 'videPomo',
@@ -51,7 +54,7 @@ const modeBlobColor = computed(() => {
 
     <div 
       class="w-full max-w-6xl h-[90vh] bg-glass backdrop-blur-xl rounded-[2.5rem] flex overflow-hidden border border-glass-border relative z-10 transition-all duration-700"
-      :class="modeGlowClass"
+      :class="[modeGlowClass, isProfileOpen ? 'scale-[0.96] opacity-40 blur-sm pointer-events-none' : 'scale-100 opacity-100']"
     >
       
       <!-- Left Column: Timer & Controls -->
@@ -75,6 +78,9 @@ const modeBlobColor = computed(() => {
       </div>
 
     </div>
+
+    <!-- Global Full-screen Overlays -->
+    <ProfilePanel :isOpen="isProfileOpen" @close="closeProfile" />
   </main>
 </template>
 
