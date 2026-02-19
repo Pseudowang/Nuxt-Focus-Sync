@@ -149,7 +149,13 @@ const getTodayFocusDurationSeconds = async (userId: string) => {
     .between([userId, startOfDay], [userId, endOfDay], true, true)
     .toArray()
 
-  return rows.reduce((total, row) => total + row.duration, 0)
+  return rows.reduce((total, row) => {
+    if (row.mode !== 'Pomodoro' && row.mode !== 'Flow') {
+      return total
+    }
+
+    return total + row.duration
+  }, 0)
 }
 
 export const useFocusFlowDAO = () => {
@@ -284,10 +290,15 @@ export const useFocusFlowDAO = () => {
     }
   }
 
-  const trackFocusCompletion = async (durationSeconds: number, endedAt: number) => {
+  const trackFocusCompletion = async (
+    durationSeconds: number,
+    endedAt: number,
+    mode: FocusRecordMode,
+  ) => {
     const db = getFocusFlowDB()
     if (!db) return
     if (durationSeconds <= 0) return
+    if (mode !== 'Pomodoro' && mode !== 'Flow') return
 
     await ensureMetaLoaded()
 
@@ -348,7 +359,7 @@ export const useFocusFlowDAO = () => {
     }
 
     await db.focus_records.add(record)
-    await trackFocusCompletion(record.duration, record.endTime)
+    await trackFocusCompletion(record.duration, record.endTime, record.mode)
     return record
   }
 
