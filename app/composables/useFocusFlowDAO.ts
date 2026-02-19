@@ -75,8 +75,11 @@ const migrateGuestDataToUser = async (targetUserId: string) => {
 
     if (guestMeta) {
       const existing = await db.user_meta.get(targetUserId)
+      const existingOrDefault = existing || buildDefaultMeta(targetUserId)
+      
+      // Create a clean, serializable merged object
       const merged: UserMeta = {
-        ...(existing || buildDefaultMeta(targetUserId)),
+        userId: targetUserId,
         streak_count: Math.max(existing?.streak_count || 0, guestMeta.streak_count || 0),
         total_focus_time: (existing?.total_focus_time || 0) + (guestMeta.total_focus_time || 0),
         last_focus_date:
@@ -85,7 +88,11 @@ const migrateGuestDataToUser = async (targetUserId: string) => {
                 ? existing.last_focus_date
                 : guestMeta.last_focus_date)
             : existing?.last_focus_date || guestMeta.last_focus_date || '',
-        settings: existing?.settings || guestMeta.settings || DEFAULT_SETTINGS,
+        settings: {
+          focusDuration: (existing?.settings || guestMeta.settings || DEFAULT_SETTINGS).focusDuration,
+          shortBreakDuration: (existing?.settings || guestMeta.settings || DEFAULT_SETTINGS).shortBreakDuration,
+          longBreakDuration: (existing?.settings || guestMeta.settings || DEFAULT_SETTINGS).longBreakDuration,
+        },
         last_sync_timestamp:
           Math.max(existing?.last_sync_timestamp || 0, guestMeta.last_sync_timestamp || 0),
       }
@@ -102,7 +109,19 @@ const ensureUserMeta = async (userId: string) => {
   const existing = await db.user_meta.get(userId)
   if (existing) {
     if (!existing.settings) {
-      const updated = { ...existing, settings: DEFAULT_SETTINGS }
+      // Create a clean object with settings
+      const updated: UserMeta = {
+        userId: existing.userId,
+        streak_count: existing.streak_count,
+        last_focus_date: existing.last_focus_date,
+        total_focus_time: existing.total_focus_time,
+        settings: {
+          focusDuration: DEFAULT_SETTINGS.focusDuration,
+          shortBreakDuration: DEFAULT_SETTINGS.shortBreakDuration,
+          longBreakDuration: DEFAULT_SETTINGS.longBreakDuration,
+        },
+        last_sync_timestamp: existing.last_sync_timestamp,
+      }
       await db.user_meta.put(updated)
       return updated
     }
@@ -110,7 +129,19 @@ const ensureUserMeta = async (userId: string) => {
     return existing
   }
 
-  const initial = buildDefaultMeta(userId)
+  // Create initial meta with clean settings object
+  const initial: UserMeta = {
+    userId,
+    streak_count: 0,
+    last_focus_date: '',
+    total_focus_time: 0,
+    settings: {
+      focusDuration: DEFAULT_SETTINGS.focusDuration,
+      shortBreakDuration: DEFAULT_SETTINGS.shortBreakDuration,
+      longBreakDuration: DEFAULT_SETTINGS.longBreakDuration,
+    },
+    last_sync_timestamp: 0,
+  }
   await db.user_meta.put(initial)
   return initial
 }
@@ -319,15 +350,28 @@ export const useFocusFlowDAO = () => {
       }
     }
 
+    // Create a clean, serializable meta object
     const nextMeta: UserMeta = {
-      ...meta,
+      userId: meta.userId,
       streak_count: streakCount,
       last_focus_date: date,
       total_focus_time: meta.total_focus_time + durationSeconds,
+      settings: {
+        focusDuration: meta.settings.focusDuration,
+        shortBreakDuration: meta.settings.shortBreakDuration,
+        longBreakDuration: meta.settings.longBreakDuration,
+      },
+      last_sync_timestamp: meta.last_sync_timestamp,
     }
 
-    await db.user_meta.put(nextMeta)
-    userMeta.value = nextMeta
+    try {
+      await db.user_meta.put(nextMeta)
+      userMeta.value = nextMeta
+    } catch (error) {
+      console.error('[useFocusFlowDAO] Failed to update user_meta:', error)
+      // Update in-memory state even if DB write fails
+      userMeta.value = nextMeta
+    }
   }
 
   const setLastSyncTimestamp = async (timestamp: number) => {
@@ -335,9 +379,77 @@ export const useFocusFlowDAO = () => {
     if (!db) return
 
     await ensureMetaLoaded()
-    const nextMeta = {
-      ...(userMeta.value || buildDefaultMeta(currentUserId.value)),
+    const meta = userMeta.value || buildDefaultMeta(currentUserId.value)
+    
+    // Create a clean, serializable meta object
+    const nextMeta: UserMeta = {
+      userId: meta.userId,
+      streak_count: meta.streak_count,
+      last_focus_date: meta.last_focus_date,
+      total_focus_time: meta.total_focus_time,
+      settings: {
+        focusDuration: meta.settings.focusDuration,
+        shortBreakDuration: meta.settings.shortBreakDuration,
+        longBreakDuration: meta.settings.longBreakDuration,
+      },
       last_sync_timestamp: timestamp,
+    }
+
+    try {
+      await db.user_meta.put(nextMeta)
+      userMeta.value = nextMeta
+    } catch (error) {
+      console.error('[useFocusFlowDAO] Failed to update user_meta sync timestamp:', error)
+      // Update in-memory state even if DB write fails
+      userMeta.value = nextMeta
+    }
+  }
+
+  const recalculateFocusMeta = async () => {
+    const db = getFocusFlowDB()
+    if (!db) return
+
+    await ensureMetaLoaded()
+
+    const userId = currentUserId.value
+    const meta = userMeta.value || buildDefaultMeta(userId)
+    const rows = await db.focus_records.where('userId').equals(userId).toArray()
+
+    const focusRows = rows.filter((row) => {
+      if (row.duration <= 0) return false
+      return row.mode === 'Pomodoro' || row.mode === 'Flow'
+    })
+
+    const totalFocusTime = focusRows.reduce((total, row) => total + row.duration, 0)
+    const uniqueDays = Array.from(
+      new Set(focusRows.map((row) => new Date(row.endTime).toISOString().split('T')[0])),
+    ).sort()
+
+    const lastFocusDate = uniqueDays[uniqueDays.length - 1] || ''
+    let streakCount = 0
+
+    if (uniqueDays.length > 0) {
+      streakCount = 1
+      for (let index = uniqueDays.length - 1; index > 0; index--) {
+        if (getDateDiffDays(uniqueDays[index - 1], uniqueDays[index]) === 1) {
+          streakCount += 1
+          continue
+        }
+        break
+      }
+    }
+
+    const nextMeta: UserMeta = {
+      userId: meta.userId,
+      streak_count: streakCount,
+      last_focus_date: lastFocusDate,
+      total_focus_time: totalFocusTime,
+      settings: {
+        focusDuration: meta.settings.focusDuration,
+        shortBreakDuration: meta.settings.shortBreakDuration,
+        longBreakDuration: meta.settings.longBreakDuration,
+      },
+      last_sync_timestamp: meta.last_sync_timestamp,
     }
 
     await db.user_meta.put(nextMeta)
@@ -350,29 +462,100 @@ export const useFocusFlowDAO = () => {
     const db = getFocusFlowDB()
     if (!db) return null
 
-    const record: FocusRecord = {
-      ...payload,
-      id: createEntityId('record'),
-      userId: currentUserId.value,
+    console.log('[useFocusFlowDAO] Adding focus record, payload:', payload)
+    console.log('[useFocusFlowDAO] currentUserId.value:', currentUserId.value)
+    console.log('[useFocusFlowDAO] typeof currentUserId.value:', typeof currentUserId.value)
+
+    const userIdStr = String(currentUserId.value)
+    console.log('[useFocusFlowDAO] userIdStr:', userIdStr)
+    console.log('[useFocusFlowDAO] typeof userIdStr:', typeof userIdStr)
+
+    console.log('[useFocusFlowDAO] Payload types:', {
+      taskId: typeof payload.taskId,
+      taskName: typeof payload.taskName,
+      tagName: typeof payload.tagName,
+      tagColor: typeof payload.tagColor,
+      startTime: typeof payload.startTime,
+      endTime: typeof payload.endTime,
+      duration: typeof payload.duration,
+      mode: typeof payload.mode,
+    })
+
+    const recordId = createEntityId('record')
+    
+    // Create a completely fresh object with no references
+    const cleanRecord: FocusRecord = {
+      id: recordId,
+      userId: userIdStr,
+      taskId: payload.taskId,
+      taskName: payload.taskName,
+      tagName: payload.tagName,
+      tagColor: payload.tagColor,
+      startTime: payload.startTime,
+      endTime: payload.endTime,
+      duration: payload.duration,
+      mode: payload.mode,
       syncStatus: 'pending',
       calendarEventId: null,
     }
 
-    await db.focus_records.add(record)
-    await trackFocusCompletion(record.duration, record.endTime, record.mode)
-    return record
+    console.log('[useFocusFlowDAO] Clean record before save:', cleanRecord)
+    console.log('[useFocusFlowDAO] Clean record stringified:', JSON.stringify(cleanRecord))
+
+    try {
+      // Try using put instead of add
+      await db.focus_records.put(cleanRecord)
+      console.log('[useFocusFlowDAO] Successfully saved record with put()')
+      await trackFocusCompletion(cleanRecord.duration, cleanRecord.endTime, cleanRecord.mode)
+      return cleanRecord
+    } catch (putError) {
+      console.warn('[useFocusFlowDAO] put() threw error, but data may have been saved:', putError)
+      
+      // Check if the record actually exists (put() may have succeeded despite the error)
+      try {
+        const existingRecord = await db.focus_records.get(cleanRecord.id)
+        if (existingRecord) {
+          console.log('[useFocusFlowDAO] Record was actually saved despite error! Using existing record.')
+          await trackFocusCompletion(cleanRecord.duration, cleanRecord.endTime, cleanRecord.mode)
+          return cleanRecord
+        }
+      } catch (checkError) {
+        console.error('[useFocusFlowDAO] Failed to check if record exists:', checkError)
+      }
+      
+      // If record doesn't exist, the put really failed
+      console.error('[useFocusFlowDAO] Record was not saved, IndexedDB may have issues')
+      console.log('[useFocusFlowDAO] Continuing without IndexedDB record (Calendar sync will still work)')
+      return null
+    }
   }
 
   const markFocusRecordSynced = async (recordId: string, calendarEventId: string) => {
     const db = getFocusFlowDB()
     if (!db) return
 
-    await db.focus_records.update(recordId, {
-      syncStatus: 'synced',
-      calendarEventId,
-    })
+    try {
+      await db.focus_records.update(recordId, {
+        syncStatus: 'synced',
+        calendarEventId,
+      })
 
-    await setLastSyncTimestamp(Date.now())
+      await setLastSyncTimestamp(Date.now())
+    } catch (error) {
+      console.error('[useFocusFlowDAO] Failed to mark focus record synced:', error)
+    }
+  }
+
+  const removeFocusRecord = async (recordId: string) => {
+    const db = getFocusFlowDB()
+    if (!db) return false
+
+    const record = await db.focus_records.get(recordId)
+    if (!record || record.userId !== currentUserId.value) return false
+
+    await db.focus_records.delete(recordId)
+    await recalculateFocusMeta()
+    return true
   }
 
   const getTodayFocusTime = async () => {
@@ -440,6 +623,7 @@ export const useFocusFlowDAO = () => {
     removeTask,
     addFocusRecord,
     markFocusRecordSynced,
+    removeFocusRecord,
     getTodayFocusTime,
     getTagPresentation,
     resolveMode,

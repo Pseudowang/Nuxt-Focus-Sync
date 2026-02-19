@@ -10,11 +10,12 @@ const props = defineProps<{
 
 const emit = defineEmits(['close'])
 
-const { userMeta, currentUserId, getTagPresentation } = useFocusFlowDAO()
+const { userMeta, currentUserId, getTagPresentation, removeFocusRecord } = useFocusFlowDAO()
 const { currentUser, isSignedIn, signOutGoogle } = useGoogleCalendar()
 
 const recentRecords = ref<FocusRecord[]>([])
 const isLoading = ref(false)
+const deletingRecordId = ref<string | null>(null)
 
 // Aggregated Data
 const tagStats = ref<{ name: string; color: string; duration: number }[]>([])
@@ -94,6 +95,28 @@ const formatDate = (timestamp: number) => {
     hour: '2-digit',
     minute: '2-digit'
   })
+}
+
+const deleteRecentRecord = async (record: FocusRecord) => {
+  if (typeof window === 'undefined') return
+
+  const shouldDelete = window.confirm('Delete this activity? This action cannot be undone.')
+  if (!shouldDelete) return
+
+  deletingRecordId.value = record.id
+
+  try {
+    const didDelete = await removeFocusRecord(record.id)
+    if (didDelete) {
+      await fetchProfileData()
+    }
+  } catch (error) {
+    console.error('[ProfilePanel] Failed to delete activity:', error)
+  } finally {
+    if (deletingRecordId.value === record.id) {
+      deletingRecordId.value = null
+    }
+  }
 }
 
 // Heatmap Grid Generation
@@ -326,18 +349,28 @@ onMounted(() => {
                       </div>
                     </div>
                  </div>
-                 <div class="flex items-center gap-4">
-                    <span class="text-sm font-mono font-bold">{{ formatDuration(record.duration) }}</span>
-                    <div :title="record.syncStatus === 'synced' ? 'Synced to Calendar' : 'Pending sync'">
+                  <div class="flex items-center gap-4">
+                     <span class="text-sm font-mono font-bold">{{ formatDuration(record.duration) }}</span>
+                     <div :title="record.syncStatus === 'synced' ? 'Synced to Calendar' : 'Pending sync'">
                        <svg v-if="record.syncStatus === 'synced'" class="w-4 h-4 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
                        </svg>
-                       <svg v-else class="w-4 h-4 text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        <svg v-else class="w-4 h-4 text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                     </div>
+                     <button
+                       @click.stop="deleteRecentRecord(record)"
+                       :title="deletingRecordId === record.id ? 'Deleting...' : 'Delete activity'"
+                       :disabled="deletingRecordId === record.id"
+                       class="p-1.5 rounded-lg text-text-muted hover:text-red-300 hover:bg-red-500/10 transition-colors disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-red-400/60"
+                     >
+                       <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m3 0V5a1 1 0 011-1h6a1 1 0 011 1v2m-7 4v6m4-6v6" />
                        </svg>
-                    </div>
-                 </div>
-              </div>
+                     </button>
+                  </div>
+               </div>
               <div v-if="recentRecords.length === 0" class="p-12 text-center text-text-muted text-sm italic">
                 No sessions recorded yet. Start your first session to see it here!
               </div>

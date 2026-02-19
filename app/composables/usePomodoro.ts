@@ -103,20 +103,30 @@ export const usePomodoro = () => {
           tagColor: fallback.tagColor,
         }
 
-    const record = await addFocusRecord({
+    const payload = {
       taskId: isFocusLikeMode ? currentFocusTask.value?.id || null : null,
-      taskName,
-      tagName: tagInfo.tagName,
-      tagColor: tagInfo.tagColor,
-      startTime,
-      endTime,
-      duration: durationSeconds,
+      taskName: String(taskName),
+      tagName: String(tagInfo.tagName),
+      tagColor: String(tagInfo.tagColor),
+      startTime: Number(startTime),
+      endTime: Number(endTime),
+      duration: Number(durationSeconds),
       mode: resolveMode(mode),
-    })
+    }
+
+    console.log('[usePomodoro] Creating focus record with payload:', payload)
+    const record = await addFocusRecord(payload)
 
     await refreshStats()
 
-    if (!record) return
+    // Even if IndexedDB save fails, still try to sync to Google Calendar
+    console.log('[usePomodoro] Attempting to sync to Google Calendar:', {
+      recordId: record?.id || 'no-record',
+      taskName,
+      mode,
+      duration: durationSeconds,
+      hadIndexedDBRecord: !!record,
+    })
 
     try {
       const calendarEventId = await insertPomodoroEvent({
@@ -127,10 +137,19 @@ export const usePomodoro = () => {
       })
 
       if (calendarEventId) {
-        await markFocusRecordSynced(record.id, calendarEventId)
+        console.log('[usePomodoro] Successfully synced to Google Calendar:', calendarEventId)
+        
+        // Only mark as synced in IndexedDB if we have a record
+        if (record) {
+          await markFocusRecordSynced(record.id, calendarEventId)
+        } else {
+          console.warn('[usePomodoro] Calendar sync succeeded but no IndexedDB record to update')
+        }
+      } else {
+        console.warn('[usePomodoro] Calendar event created but no ID returned')
       }
     } catch (error) {
-      console.error('Failed to sync focus session to Google Calendar', error)
+      console.error('[usePomodoro] Failed to sync focus session to Google Calendar', error)
     }
   }
 
