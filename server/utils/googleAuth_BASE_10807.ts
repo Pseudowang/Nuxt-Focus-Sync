@@ -20,7 +20,6 @@ interface GoogleTokenResponse {
 }
 
 export interface GoogleUser {
-  id: string
   email: string
   name: string
   picture: string
@@ -213,19 +212,7 @@ export const exchangeCodeForSession = async (event: H3Event, code: string, exist
     throw createError({ statusCode: userResponse.status, statusMessage: `Failed to fetch Google user info: ${errorText}` })
   }
 
-  const userRaw = await userResponse.json() as {
-    sub?: string
-    email?: string
-    name?: string
-    picture?: string
-  }
-
-  const user: GoogleUser = {
-    id: userRaw.sub || userRaw.email || `google-${Date.now()}`,
-    email: userRaw.email || '',
-    name: userRaw.name || 'Google User',
-    picture: userRaw.picture || '',
-  }
+  const user = await userResponse.json() as GoogleUser
 
   return toGoogleSession(tokens, user, existingRefreshToken)
 }
